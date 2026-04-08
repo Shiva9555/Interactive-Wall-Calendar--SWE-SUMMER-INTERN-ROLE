@@ -1,0 +1,33 @@
+$root = "c:\Users\DELL\ai gravity\interactive-calendar"
+$listener = [System.Net.HttpListener]::new()
+$listener.Prefixes.Add("http://localhost:8080/")
+$listener.Start()
+Write-Host "Server started on http://localhost:8080"
+
+while ($listener.IsListening) {
+    $ctx = $listener.GetContext()
+    $path = $ctx.Request.Url.LocalPath
+    if ($path -eq "/") { $path = "/index.html" }
+    $filePath = Join-Path $root $path.TrimStart("/")
+    $resp = $ctx.Response
+    
+    if (Test-Path $filePath) {
+        $ext = [IO.Path]::GetExtension($filePath).ToLower()
+        $types = @{
+            ".html" = "text/html; charset=utf-8"
+            ".css"  = "text/css"
+            ".js"   = "application/javascript"
+            ".png"  = "image/png"
+            ".jpg"  = "image/jpeg"
+            ".svg"  = "image/svg+xml"
+        }
+        $resp.ContentType = if ($types[$ext]) { $types[$ext] } else { "application/octet-stream" }
+        $bytes = [IO.File]::ReadAllBytes($filePath)
+        $resp.OutputStream.Write($bytes, 0, $bytes.Length)
+    } else {
+        $resp.StatusCode = 404
+        $b = [Text.Encoding]::UTF8.GetBytes("Not Found: $path")
+        $resp.OutputStream.Write($b, 0, $b.Length)
+    }
+    $resp.OutputStream.Close()
+}
