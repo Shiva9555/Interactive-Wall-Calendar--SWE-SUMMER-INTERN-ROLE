@@ -1,0 +1,207 @@
+const { useState, useEffect, useMemo, useCallback } = React;
+
+const App = () => {
+    const [currentDate, setCurrentDate] = useState(new Date());
+    const [startDate, setStartDate] = useState(null);
+    const [endDate, setEndDate] = useState(null);
+    const [hoverDate, setHoverDate] = useState(null);
+    const [notesData, setNotesData] = useState({});
+    
+    // Derived state for Month and Year
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+
+    // Load from local storage
+    useEffect(() => {
+        const stored = localStorage.getItem('calendar_notes');
+        if (stored) {
+            try {
+                setNotesData(JSON.parse(stored));
+            } catch (e) {}
+        }
+    }, []);
+
+    // Save notes
+    const handleNoteChange = (e) => {
+        const val = e.target.value;
+        const key = getActiveNoteKey();
+        if(!key) return;
+
+        const newNotes = { ...notesData, [key]: val };
+        setNotesData(newNotes);
+        localStorage.setItem('calendar_notes', JSON.stringify(newNotes));
+    };
+
+    const formatKey = (d) => {
+        if (!d) return null;
+        return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+    };
+
+    const getActiveNoteKey = () => {
+        if (startDate && endDate) {
+            return `${formatKey(startDate)}_to_${formatKey(endDate)}`;
+        }
+        if (startDate) {
+            return formatKey(startDate);
+        }
+        return 'general_month_' + year + '_' + month;
+    };
+
+    // Calculate days for the grid
+    const getDaysInMonth = (y, m) => new Date(y, m + 1, 0).getDate();
+    const getFirstDayOfMonth = (y, m) => new Date(y, m, 1).getDay();
+
+    const daysInMonth = getDaysInMonth(year, month);
+    const firstDay = getFirstDayOfMonth(year, month);
+
+    const prevMonth = () => {
+        setCurrentDate(new Date(year, month - 1, 1));
+        // Reset hover state safely when switching context if part of range selection open
+        if(startDate && !endDate) setHoverDate(null);
+    };
+    
+    const nextMonth = () => {
+        setCurrentDate(new Date(year, month + 1, 1));
+        if(startDate && !endDate) setHoverDate(null);
+    };
+
+    const handleDayClick = (day) => {
+        const clickedDate = new Date(year, month, day);
+        clickedDate.setHours(0, 0, 0, 0);
+
+        if (!startDate || (startDate && endDate)) {
+            // Start a new range
+            setStartDate(clickedDate);
+            setEndDate(null);
+            setHoverDate(null);
+        } else {
+            // We have a startDate, complete the range (or swap if earlier)
+            if (clickedDate < startDate) {
+                setEndDate(startDate);
+                setStartDate(clickedDate);
+            } else {
+                setEndDate(clickedDate);
+            }
+        }
+    };
+
+    const handleMouseEnter = (day) => {
+        if (startDate && !endDate) {
+            const hover = new Date(year, month, day);
+            hover.setHours(0, 0, 0, 0);
+            setHoverDate(hover);
+        }
+    };
+
+    const checkState = (day) => {
+        const d = new Date(year, month, day).setHours(0,0,0,0);
+        const s = startDate?.getTime();
+        const e = endDate?.getTime();
+        const h = hoverDate?.getTime();
+        const today = new Date().setHours(0,0,0,0);
+
+        let classes = ['day-cell'];
+        if (d === today) classes.push('today');
+
+        let endRef = e;
+        if (!endRef && s) endRef = h;
+
+        let curStart = s;
+        let curEnd = endRef;
+        if (curStart && curEnd && curStart > curEnd) {
+            const temp = curStart;
+            curStart = curEnd;
+            curEnd = temp;
+        }
+
+        if (s && d === s) classes.push('selected-start');
+        if (e && d === e && d !== s) classes.push('selected-end');
+        if (s && !e && h && d === h && d !== s) classes.push('selected-end');
+
+        if (curStart && curEnd && d > curStart && d < curEnd) {
+            classes.push('in-range');
+        }
+
+        const dateObj = new Date(year, month, day);
+        if (classes.includes('in-range')) {
+            if (dateObj.getDay() === 0) classes.push('sunday-in-range');
+            if (dateObj.getDay() === 6) classes.push('saturday-in-range');
+        }
+
+        return classes.join(' ');
+    };
+
+    const activeNoteText = notesData[getActiveNoteKey()] || '';
+    
+    // Create Note title text
+    let noteTitle = `Notes for ${new Date(year, month).toLocaleString('default', { month: 'long', year: 'numeric' })}`;
+    if (startDate && !endDate) {
+        noteTitle = `Notes for ${startDate.toLocaleDateString()}`;
+    } else if (startDate && endDate) {
+        noteTitle = `Notes for ${startDate.toLocaleDateString()} - ${endDate.toLocaleDateString()}`;
+    }
+
+    const monthName = currentDate.toLocaleString('default', { month: 'long' });
+
+    return (
+        <div className="app-container">
+            <div className="hero-panel" style={{ backgroundImage: "url('hero.png')" }}>
+                <div className="hero-overlay"></div>
+                <div className="hero-content">
+                    <div className="hero-year">{year}</div>
+                    <div className="hero-month">{monthName}</div>
+                </div>
+            </div>
+
+            <div className="calendar-pane">
+                <div className="calendar-header">
+                    <button className="nav-button" onClick={prevMonth}>
+                        <i className="ph ph-caret-left" style={{fontSize: '1.5rem'}}></i>
+                    </button>
+                    <div className="current-date-title">{monthName} {year}</div>
+                    <button className="nav-button" onClick={nextMonth}>
+                        <i className="ph ph-caret-right" style={{fontSize: '1.5rem'}}></i>
+                    </button>
+                </div>
+
+                <div className="calendar-grid">
+                    <div className="weekdays"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div>
+                    
+                    {Array.from({ length: firstDay }).map((_, i) => (
+                        <div key={`empty-${i}`} className="day-cell empty"></div>
+                    ))}
+                    
+                    {Array.from({ length: daysInMonth }).map((_, i) => {
+                        const day = i + 1;
+                        return (
+                            <div 
+                                key={day} 
+                                className={checkState(day)}
+                                onClick={() => handleDayClick(day)}
+                                onMouseEnter={() => handleMouseEnter(day)}
+                            >
+                                {day}
+                            </div>
+                        );
+                    })}
+                </div>
+
+                <div className="notes-container">
+                    <div className="notes-header">
+                        {noteTitle}
+                        {activeNoteText.length > 0 && <span>Saved</span>}
+                    </div>
+                    <textarea 
+                        className="notes-textarea" 
+                        placeholder={startDate ? "Add a note for this specific date range..." : "Add general notes for the month..."}
+                        value={activeNoteText}
+                        onChange={handleNoteChange}
+                    ></textarea>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
